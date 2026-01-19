@@ -1,0 +1,19 @@
+{
+"EGammaA": ["DoubleEG_A","/EGamma/Run2018A-UL2018_MiniAODv2_NanoAODv9-v1/NANOAOD","crab_script_dataA.sh"],
+"EGammaB": ["DoubleEG_B","/EGamma/Run2018B-UL2018_MiniAODv2_NanoAODv9-v1/NANOAOD","crab_script_dataB.sh"],
+"EGammaC": ["DoubleEG_C","/EGamma/Run2018C-UL2018_MiniAODv2_NanoAODv9-v1/NANOAOD","crab_script_dataC.sh"],
+"EGammaD": ["DoubleEG_D","/EGamma/Run2018D-UL2018_MiniAODv2_NanoAODv9-v3/NANOAOD","crab_script_dataD.sh"],
+"TTGG": ["TTGG","/TTGG_TuneCP5_13TeV-amcatnlo-pythia8/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"DiPhoton_0to40":["DiPhoton_0to40","/DiPhotonJetsBox_MGG-0to40_13TeV-sherpa/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"DiPhoton_40to80":["DiPhoton_40to80","/DiPhotonJetsBox_M40_80-sherpa/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"DiPhoton_80toInf":["DiPhoton_80toInf","/DiPhotonJetsBox_MGG-80toInf_13TeV-sherpa/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"GJet_Pt-40toInf":["GJet_Pt-40toInf","/GJet_Pt-40toInf_DoubleEMEnriched_MGG-80toInf_TuneCP5_13TeV_Pythia8/RunIISummer20UL18NanoAODv2-106X_upgrade2018_realistic_v15_L1v1-v1/NANOAODSIM"],
+"GJet_Pt-20toInf":["GJet_Pt-20toInf","/GJet_Pt-20toInf_DoubleEMEnriched_MGG-40to80_TuneCP5_13TeV_Pythia8/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"GJet_Pt-20to40":["GJet_Pt-20to40","/GJet_Pt-20to40_DoubleEMEnriched_MGG-80toInf_TuneCP5_13TeV_Pythia8/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"QCD_MGG40to80": ["QCD_MGG40to80","/QCD_Pt-30toInf_DoubleEMEnriched_MGG-40to80_TuneCP5_13TeV-pythia8/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"QCD_MGG80_pt30":["QCD_MGG80_pt30","/QCD_Pt-30to40_DoubleEMEnriched_MGG-80toInf_TuneCP5_13TeV-pythia8/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"QCD_MGG80": ["QCD_MGG80","/QCD_Pt-40ToInf_DoubleEMEnriched_MGG-80ToInf_TuneCP5_13TeV-pythia8/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"ZG":["ZG","/ZGToLLG_01J_5f_TuneCP5_13TeV-amcatnloFXFX-pythia8/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"WG":["WG","/WGToLNuG_01J_5f_TuneCP5_13TeV-amcatnloFXFX-pythia8/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v1/NANOAODSIM"],
+"Sig": ["Sig","/GGJJ_EWK_MJJ-120_TuneCP5_13TeV-madgraph-pythia8/RunIISummer20UL18NanoAODv9-106X_upgrade2018_realistic_v16_L1v1-v2/NANOAODSIM"]
+}
