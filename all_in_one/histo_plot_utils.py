@@ -3,6 +3,10 @@ Unified Histogram Making and Plotting Utilities
 
 This module combines the functionality of HistoMaker and PlotMaker,
 with support for distributed RDataFrame using Dask.
+
+Configuration is loaded from YAML files:
+- hist.yaml: Histogram variable definitions
+- samples.yaml: Sample definitions with cross sections, is_mc, is_unweighted
 """
 import ROOT
 import os
@@ -17,10 +21,162 @@ try:
 except ImportError:
     HAS_DASK = False
 
+# Setup for YAML configuration
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+    print("Warning: PyYAML not installed. Configuration loading from YAML files disabled.")
+
 # Load the HH header if it exists in the same directory
 HH_header_path = os.path.join(os.path.dirname(__file__), "HH.h")
 if os.path.exists(HH_header_path):
     ROOT.gInterpreter.Declare('#include "{}"'.format(HH_header_path))
+
+# Default paths for configuration files
+DEFAULT_HIST_CONFIG = os.path.join(os.path.dirname(__file__), "hist.yaml")
+DEFAULT_SAMPLES_CONFIG = os.path.join(os.path.dirname(__file__), "samples.yaml")
+
+
+# ============================================================================
+# Configuration loading functions
+# ============================================================================
+def load_hist_config(config_path=None, region="SR"):
+    """
+    Load histogram configuration from YAML file.
+    
+    Parameters:
+    -----------
+    config_path : str, optional
+        Path to histogram configuration YAML file. Uses default if not provided.
+    region : str
+        Region name to load (e.g., "SR" for signal region).
+    
+    Returns:
+    --------
+    dict : Dictionary mapping histogram names to [nbins, xlow, xhigh].
+    """
+    if not HAS_YAML:
+        print("PyYAML not available, using default configuration")
+        return get_sr_histograms_config()
+    
+    if config_path is None:
+        config_path = DEFAULT_HIST_CONFIG
+    
+    if not os.path.exists(config_path):
+        print(f"Config file {config_path} not found, using default configuration")
+        return get_sr_histograms_config()
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    if region not in config:
+        raise ValueError(f"Region '{region}' not found in configuration file")
+    
+    # Convert YAML format to internal format [nbins, xlow, xhigh]
+    hist_config = {}
+    for var_name, var_def in config[region].items():
+        hist_config[var_name] = [var_def['nbins'], var_def['xlow'], var_def['xhigh']]
+    
+    return hist_config
+
+
+def load_samples_config(config_path=None):
+    """
+    Load samples configuration from YAML file.
+    
+    Parameters:
+    -----------
+    config_path : str, optional
+        Path to samples configuration YAML file. Uses default if not provided.
+    
+    Returns:
+    --------
+    dict : Dictionary with 'samples', 'luminosity', and 'categories' keys.
+    """
+    if not HAS_YAML:
+        print("PyYAML not available, using default sample configuration")
+        return get_default_samples_config()
+    
+    if config_path is None:
+        config_path = DEFAULT_SAMPLES_CONFIG
+    
+    if not os.path.exists(config_path):
+        print(f"Config file {config_path} not found, using default configuration")
+        return get_default_samples_config()
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    return config
+
+
+def get_default_samples_config():
+    """Get default samples configuration when YAML is not available."""
+    return {
+        'luminosity': LUMI,
+        'samples': {name: {'cross_section': xs, 'is_mc': True, 'is_unweighted': False, 
+                           'color': COLORS.get(name, 1), 'category': 'MC'}
+                    for name, xs in XS.items()},
+        'categories': {
+            'DiPhoton': {'hex_color': DiPho_hex, 'legend_label': 'DiPhoton'},
+            'GJet': {'hex_color': GJet_hex, 'legend_label': 'GJet'},
+            'TTGG': {'hex_color': TTGG_hex, 'legend_label': 'TTGG'},
+            'QCD': {'hex_color': QCD_hex, 'legend_label': 'QCD'},
+            'VG': {'hex_color': VG_hex, 'legend_label': 'VG'},
+            'Signal': {'hex_color': Sig_hex, 'legend_label': 'Signal'},
+        }
+    }
+
+
+def build_rdatasetspec(samples_config, sample_names=None):
+    """
+    Build ROOT.RDF.Experimental.RDatasetSpec from samples configuration.
+    
+    Parameters:
+    -----------
+    samples_config : dict
+        Samples configuration loaded from YAML.
+    sample_names : list, optional
+        List of sample names to include. If None, includes all samples with files.
+    
+    Returns:
+    --------
+    dict : Dictionary mapping sample names to RDatasetSpec objects.
+    """
+    specs = {}
+    samples = samples_config.get('samples', {})
+    
+    for name, sample_def in samples.items():
+        if sample_names is not None and name not in sample_names:
+            continue
+        
+        files = sample_def.get('files', [])
+        if not files:
+            continue
+        
+        try:
+            # Create RDatasetSpec for this sample
+            spec = ROOT.RDF.Experimental.RDatasetSpec()
+            for f in files:
+                spec.AddSample(ROOT.RDF.Experimental.RSample(name, "Events", f))
+            
+            # Store metadata
+            spec.sample_info = {
+                'is_mc': sample_def.get('is_mc', True),
+                'is_unweighted': sample_def.get('is_unweighted', False),
+                'cross_section': sample_def.get('cross_section', 1.0),
+                'category': sample_def.get('category', 'MC'),
+                'color': sample_def.get('color', 1)
+            }
+            specs[name] = spec
+        except (AttributeError, TypeError):
+            # RDatasetSpec not available in this ROOT version
+            print(f"RDatasetSpec not available, skipping {name}")
+            continue
+    
+    return specs
 
 # ============================================================================
 # Cross-sections and colors configuration
@@ -117,7 +273,7 @@ def init_dask(n_workers=None, scheduler_address=None):
     return client
 
 
-def init_distributed_rdf(npartitions=None):
+def init_distributed_rdf(npartitions=None, daskclient=None):
     """
     Initialize ROOT's RDataFrame with distributed computing support.
     
@@ -125,6 +281,10 @@ def init_distributed_rdf(npartitions=None):
     -----------
     npartitions : int, optional
         Number of partitions for the distributed RDataFrame.
+    daskclient : distributed.Client, optional
+        External Dask client to use. If provided, uses this client instead of
+        creating a new one. This allows integration with externally managed
+        Dask clusters.
     
     Returns:
     --------
@@ -136,8 +296,19 @@ def init_distributed_rdf(npartitions=None):
         # Try to use distributed RDataFrame if available
         ROOT.RDF.Experimental.Distributed
         from ROOT.RDF.Experimental.Distributed import Dask
-        print("Using distributed RDataFrame with Dask backend")
-        return Dask.RDataFrame
+        
+        if daskclient is not None:
+            # Use the provided external client
+            print("Using distributed RDataFrame with provided Dask client")
+            def RDataFrameWithClient(*args, **kwargs):
+                kwargs['daskclient'] = daskclient
+                if npartitions is not None:
+                    kwargs['npartitions'] = npartitions
+                return Dask.RDataFrame(*args, **kwargs)
+            return RDataFrameWithClient
+        else:
+            print("Using distributed RDataFrame with Dask backend")
+            return Dask.RDataFrame
     except (ImportError, AttributeError):
         print("Distributed RDataFrame not available. Using standard RDataFrame.")
         ROOT.EnableImplicitMT()
@@ -224,7 +395,9 @@ def get_sr_histograms_config():
     }
 
 
-def make_histograms(inputfile, hists_config, region="SR", year='2018', use_distributed=False):
+def make_histograms(inputfile, hists_config=None, region="SR", year='2018', 
+                    use_distributed=False, daskclient=None, sample_info=None,
+                    hist_config_path=None):
     """
     Create histograms from input ROOT file.
     
@@ -232,24 +405,42 @@ def make_histograms(inputfile, hists_config, region="SR", year='2018', use_distr
     -----------
     inputfile : str
         Path to the input ROOT file.
-    hists_config : dict
+    hists_config : dict, optional
         Dictionary mapping histogram names to [nbins, xlow, xhigh].
+        If None, loads from hist.yaml configuration file.
     region : str
         Region name (e.g., "SR" for signal region).
     year : str
         Data-taking year.
     use_distributed : bool
         Whether to use distributed RDataFrame.
+    daskclient : distributed.Client, optional
+        External Dask client to use for distributed processing.
+    sample_info : dict, optional
+        Sample information with 'is_mc' and 'is_unweighted' keys.
+        If None, infers from filename.
+    hist_config_path : str, optional
+        Path to histogram configuration YAML file.
     
     Returns:
     --------
     dict : Dictionary mapping histogram names to ROOT TH1 objects.
     """
-    ismc = not any(tag in inputfile for tag in ['EG', 'Muon', 'Double', 'Single'])
+    # Load histogram config if not provided
+    if hists_config is None:
+        hists_config = load_hist_config(hist_config_path, region)
+    
+    # Determine if MC from sample_info or filename
+    if sample_info is not None:
+        ismc = sample_info.get('is_mc', True)
+        is_unweighted = sample_info.get('is_unweighted', False)
+    else:
+        ismc = not any(tag in inputfile for tag in ['EG', 'Muon', 'Double', 'Single'])
+        is_unweighted = False
     
     # Choose RDataFrame implementation
     if use_distributed:
-        RDataFrame = init_distributed_rdf()
+        RDataFrame = init_distributed_rdf(daskclient=daskclient)
     else:
         ROOT.EnableImplicitMT()
         RDataFrame = ROOT.RDataFrame
@@ -268,13 +459,13 @@ def make_histograms(inputfile, hists_config, region="SR", year='2018', use_distr
         df = df.Filter(sr_filter)
     
     # Apply MC weights if applicable
-    if ismc:
+    if ismc and not is_unweighted:
         df = df.Define('genweightnoSF', 'puWeight*genWeight/abs(genWeight)')
     
     # Book histograms
     histos = {}
     for name, (nbins, xlow, xhigh) in hists_config.items():
-        if ismc:
+        if ismc and not is_unweighted:
             histos[name] = df.Histo1D((name + '_noSF', '', nbins, xlow, xhigh),
                                        name, 'genweightnoSF')
         else:
@@ -517,17 +708,19 @@ def draw_stacked_plot(hist_dict, x_name='', is_energy=False, year='2018',
 # ============================================================================
 # High-level workflow functions
 # ============================================================================
-def analyze_and_plot(input_files, hists_config=None, region="SR", year='2018',
-                     use_distributed=False, output_dir='.', show=False):
+def analyze_and_plot(input_files=None, hists_config=None, region="SR", year='2018',
+                     use_distributed=False, output_dir='.', show=False,
+                     daskclient=None, samples_config_path=None, hist_config_path=None):
     """
     Complete workflow: create histograms and plot them.
     
     Parameters:
     -----------
-    input_files : dict
-        Dictionary mapping sample names to file paths.
+    input_files : dict, optional
+        Dictionary mapping sample names to file paths. If None, loads from
+        samples.yaml configuration file.
     hists_config : dict, optional
-        Histogram configuration. Uses default SR config if not provided.
+        Histogram configuration. If None, loads from hist.yaml.
     region : str
         Analysis region (e.g., "SR").
     year : str
@@ -538,29 +731,78 @@ def analyze_and_plot(input_files, hists_config=None, region="SR", year='2018',
         Directory for output plots.
     show : bool
         Whether to display plots (for notebooks).
+    daskclient : distributed.Client, optional
+        External Dask client for distributed processing. If provided, the
+        client is used directly instead of creating a new one.
+    samples_config_path : str, optional
+        Path to samples YAML configuration file.
+    hist_config_path : str, optional
+        Path to histogram YAML configuration file.
     
     Returns:
     --------
     dict : Dictionary of all created histograms per variable.
     """
+    # Load histogram config if not provided
     if hists_config is None:
-        hists_config = get_sr_histograms_config()
+        hists_config = load_hist_config(hist_config_path, region)
+    
+    # Load samples config
+    samples_config = load_samples_config(samples_config_path)
+    lumi = samples_config.get('luminosity', LUMI).get(year, 59700)
+    
+    # If input_files not provided, try to get from samples config
+    if input_files is None:
+        input_files = {}
+        for sample_name, sample_def in samples_config.get('samples', {}).items():
+            files = sample_def.get('files', [])
+            if files:
+                input_files[sample_name] = files[0] if len(files) == 1 else files
     
     # Create histograms for each sample
     all_histos = {}
     for sample_name, filepath in input_files.items():
         print(f"Processing {sample_name}...")
-        histos = make_histograms(filepath, hists_config, region, year, use_distributed)
         
-        # Scale MC samples
-        if sample_name in XS:
-            lumi = LUMI.get(year, 59700)
+        # Get sample info from config
+        sample_def = samples_config.get('samples', {}).get(sample_name, {})
+        sample_info = {
+            'is_mc': sample_def.get('is_mc', True),
+            'is_unweighted': sample_def.get('is_unweighted', False),
+            'cross_section': sample_def.get('cross_section'),
+            'category': sample_def.get('category', 'MC')
+        }
+        
+        # Handle both single file and list of files
+        # For multiple files, pass as list to RDataFrame (TChain-like behavior)
+        if isinstance(filepath, list):
+            if len(filepath) == 1:
+                filepath_for_rdf = filepath[0]
+            else:
+                # Multiple files - RDataFrame can handle a list
+                filepath_for_rdf = filepath
+        else:
+            filepath_for_rdf = filepath
+        
+        histos = make_histograms(
+            filepath_for_rdf, hists_config, region, year, 
+            use_distributed=use_distributed,
+            daskclient=daskclient,
+            sample_info=sample_info,
+            hist_config_path=hist_config_path
+        )
+        
+        # Scale MC samples using config cross section
+        xs = sample_info.get('cross_section') or XS.get(sample_name)
+        if xs and sample_info['is_mc'] and not sample_info['is_unweighted']:
             # Read nEventsGenWeighted from file and scale histograms
+            # For multiple files, use the first file (assuming same normalization)
+            scale_file = filepath[0] if isinstance(filepath, list) else filepath
             try:
-                fin_temp = ROOT.TFile.Open(filepath)
+                fin_temp = ROOT.TFile.Open(scale_file)
                 hist_normalize = fin_temp.Get('nEventsGenWeighted')
                 if hist_normalize:
-                    scale_factor = float(XS[sample_name]) * lumi / hist_normalize.GetBinContent(1)
+                    scale_factor = float(xs) * lumi / hist_normalize.GetBinContent(1)
                     for var_name in histos:
                         histos[var_name].Scale(scale_factor)
                 fin_temp.Close()
@@ -571,6 +813,131 @@ def analyze_and_plot(input_files, hists_config=None, region="SR", year='2018',
             if var_name not in all_histos:
                 all_histos[var_name] = {}
             all_histos[var_name][sample_name] = hist
+    
+    # Create plots
+    os.makedirs(output_dir, exist_ok=True)
+    
+    for var_name, hist_dict in all_histos.items():
+        is_energy = any(tag in var_name.lower() for tag in 
+                       ['maa', 'mjj', 'ht', 'mass', 'pt', 'met'])
+        is_energy = is_energy and 'phi' not in var_name.lower()
+        
+        save_path = os.path.join(output_dir, var_name)
+        draw_stacked_plot(hist_dict, var_name, is_energy, year,
+                         save_path=save_path, show=show)
+    
+    return all_histos
+
+
+def analyze_with_rdatasetspec(samples_config_path=None, hists_config=None, region="SR",
+                               year='2018', daskclient=None, output_dir='.', show=False,
+                               hist_config_path=None):
+    """
+    Complete workflow using RDatasetSpec for sample handling.
+    
+    This function uses ROOT's RDatasetSpec to handle sample metadata,
+    enabling more sophisticated sample handling with distributed processing.
+    
+    Parameters:
+    -----------
+    samples_config_path : str, optional
+        Path to samples YAML configuration file.
+    hists_config : dict, optional
+        Histogram configuration. If None, loads from hist.yaml.
+    region : str
+        Analysis region (e.g., "SR").
+    year : str
+        Data-taking year.
+    daskclient : distributed.Client, optional
+        External Dask client for distributed processing.
+    output_dir : str
+        Directory for output plots.
+    show : bool
+        Whether to display plots (for notebooks).
+    hist_config_path : str, optional
+        Path to histogram YAML configuration file.
+    
+    Returns:
+    --------
+    dict : Dictionary of all created histograms per variable.
+    """
+    # Load configurations
+    if hists_config is None:
+        hists_config = load_hist_config(hist_config_path, region)
+    
+    samples_config = load_samples_config(samples_config_path)
+    
+    # Build RDatasetSpecs
+    specs = build_rdatasetspec(samples_config)
+    
+    if not specs:
+        print("No samples with files found. Please add file paths to samples.yaml")
+        return {}
+    
+    # Process each sample using RDatasetSpec
+    all_histos = {}
+    lumi = samples_config.get('luminosity', LUMI).get(year, 59700)
+    
+    for sample_name, spec in specs.items():
+        print(f"Processing {sample_name} with RDatasetSpec...")
+        
+        try:
+            # Create RDataFrame from spec
+            if daskclient is not None:
+                RDataFrame = init_distributed_rdf(daskclient=daskclient)
+            else:
+                ROOT.EnableImplicitMT()
+                RDataFrame = ROOT.RDataFrame
+            
+            df = RDataFrame(spec)
+            
+            # Get sample info from spec
+            sample_info = getattr(spec, 'sample_info', {})
+            is_mc = sample_info.get('is_mc', True)
+            is_unweighted = sample_info.get('is_unweighted', False)
+            xs = sample_info.get('cross_section', 1.0)
+            
+            # Apply selections
+            df = apply_triggers(df, year)
+            df = df.Filter(MET_FILTER)
+            
+            if region == "SR":
+                sr_filter = ("SB_region!=1 && fake_flag==0 && mjj>500 && "
+                            "pho1_pt_SR>35 && pho2_pt_SR>25 && "
+                            "dR_p1j1_SR>0.4 && dR_p1j2_SR>0.4 && "
+                            "dR_p2j1_SR>0.4 && dR_p2j2_SR>0.4")
+                df = df.Filter(sr_filter)
+            
+            # Apply MC weights if applicable
+            if is_mc and not is_unweighted:
+                df = df.Define('genweightnoSF', 'puWeight*genWeight/abs(genWeight)')
+            
+            # Book histograms
+            histos = {}
+            for name, (nbins, xlow, xhigh) in hists_config.items():
+                if is_mc and not is_unweighted:
+                    histos[name] = df.Histo1D((name + '_noSF', '', nbins, xlow, xhigh),
+                                               name, 'genweightnoSF')
+                else:
+                    histos[name] = df.Histo1D((name + '_noSF', '', nbins, xlow, xhigh), name)
+            
+            # Get values and store
+            for name, histo in histos.items():
+                h = histo.GetValue()
+                h.SetDirectory(0)
+                
+                # Scale if needed
+                if is_mc and not is_unweighted and xs:
+                    # Would need nEventsGenWeighted for proper scaling
+                    pass
+                
+                if name not in all_histos:
+                    all_histos[name] = {}
+                all_histos[name][sample_name] = h
+                
+        except Exception as e:
+            print(f"Error processing {sample_name}: {e}")
+            continue
     
     # Create plots
     os.makedirs(output_dir, exist_ok=True)
