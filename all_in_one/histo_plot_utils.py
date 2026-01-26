@@ -1547,3 +1547,646 @@ def fit_fake_yields(yields_dict, epsilon_real_init=0.90, epsilon_fake_init=0.15,
         'chi2': result.fun,
         'success': result.success
     }
+
+
+# ============================================================================
+# Extended N-Photon Matrix Method (for triphoton and beyond)
+# ============================================================================
+"""
+Extended Matrix Method for N-Photon Analysis:
+----------------------------------------------
+For analyses with more than 2 photons (like ATLAS triphoton), the matrix method
+extends to higher dimensions. For N photons:
+- Number of observed categories: 2^N (e.g., 8 for triphoton: TTT, TTL, TLT, ...)
+- Number of true states: 2^N (e.g., 8 for triphoton: RRR, RRF, RFR, ...)
+- Transfer matrix size: 2^N x 2^N
+
+The transfer matrix is the N-fold Kronecker product of the single-photon 2x2 matrix.
+"""
+
+
+class ExtendedMatrixMethodConfig:
+    """Configuration for the extended N-photon matrix method."""
+    
+    def __init__(self, 
+                 n_photons=3,
+                 tight_cuts=None,
+                 loose_cuts=None,
+                 epsilon_real=None,
+                 epsilon_fake=None,
+                 epsilon_real_err=None,
+                 epsilon_fake_err=None):
+        """
+        Initialize extended matrix method configuration.
+        
+        Parameters:
+        -----------
+        n_photons : int
+            Number of photons (2 for diphoton, 3 for triphoton, etc.).
+        tight_cuts : list of str, optional
+            Cut strings for tight selection for each photon.
+            If None, uses default NanoAOD cuts.
+        loose_cuts : list of str, optional
+            Cut strings for loose (but not tight) selection for each photon.
+        epsilon_real : list of float or float, optional
+            Tight selection efficiency for real photons. Can be per-photon.
+        epsilon_fake : list of float or float, optional
+            Tight selection efficiency for fake photons. Can be per-photon.
+        epsilon_real_err : list of float or float, optional
+            Uncertainties on epsilon_real.
+        epsilon_fake_err : list of float or float, optional
+            Uncertainties on epsilon_fake.
+        """
+        self.n_photons = n_photons
+        self.n_categories = 2**n_photons
+        
+        # Default cuts for each photon
+        if tight_cuts is None:
+            self.tight_cuts = [f"Photon_cutBased[{i}] >= 3" for i in range(n_photons)]
+        else:
+            if len(tight_cuts) != n_photons:
+                raise ValueError(f"tight_cuts must have {n_photons} elements, got {len(tight_cuts)}")
+            self.tight_cuts = tight_cuts
+            
+        if loose_cuts is None:
+            self.loose_cuts = [f"Photon_cutBased[{i}] >= 1 && Photon_cutBased[{i}] < 3" 
+                              for i in range(n_photons)]
+        else:
+            if len(loose_cuts) != n_photons:
+                raise ValueError(f"loose_cuts must have {n_photons} elements, got {len(loose_cuts)}")
+            self.loose_cuts = loose_cuts
+        
+        # Epsilon values - can be scalar (same for all) or per-photon
+        if epsilon_real is None:
+            self.epsilon_real = [0.90] * n_photons
+        elif isinstance(epsilon_real, (int, float)):
+            self.epsilon_real = [epsilon_real] * n_photons
+        else:
+            epsilon_real = list(epsilon_real)
+            if len(epsilon_real) != n_photons:
+                raise ValueError(f"epsilon_real must have {n_photons} elements, got {len(epsilon_real)}")
+            self.epsilon_real = epsilon_real
+            
+        if epsilon_fake is None:
+            self.epsilon_fake = [0.15] * n_photons
+        elif isinstance(epsilon_fake, (int, float)):
+            self.epsilon_fake = [epsilon_fake] * n_photons
+        else:
+            epsilon_fake = list(epsilon_fake)
+            if len(epsilon_fake) != n_photons:
+                raise ValueError(f"epsilon_fake must have {n_photons} elements, got {len(epsilon_fake)}")
+            self.epsilon_fake = epsilon_fake
+            
+        if epsilon_real_err is None:
+            self.epsilon_real_err = [0.02] * n_photons
+        elif isinstance(epsilon_real_err, (int, float)):
+            self.epsilon_real_err = [epsilon_real_err] * n_photons
+        else:
+            epsilon_real_err = list(epsilon_real_err)
+            if len(epsilon_real_err) != n_photons:
+                raise ValueError(f"epsilon_real_err must have {n_photons} elements, got {len(epsilon_real_err)}")
+            self.epsilon_real_err = epsilon_real_err
+            
+        if epsilon_fake_err is None:
+            self.epsilon_fake_err = [0.05] * n_photons
+        elif isinstance(epsilon_fake_err, (int, float)):
+            self.epsilon_fake_err = [epsilon_fake_err] * n_photons
+        else:
+            epsilon_fake_err = list(epsilon_fake_err)
+            if len(epsilon_fake_err) != n_photons:
+                raise ValueError(f"epsilon_fake_err must have {n_photons} elements, got {len(epsilon_fake_err)}")
+            self.epsilon_fake_err = epsilon_fake_err
+        
+        # Validate epsilon values
+        for i, (eps_r, eps_f) in enumerate(zip(self.epsilon_real, self.epsilon_fake)):
+            if not (0 < eps_r < 1):
+                raise ValueError(f"epsilon_real[{i}] must be between 0 and 1, got {eps_r}")
+            if not (0 < eps_f < 1):
+                raise ValueError(f"epsilon_fake[{i}] must be between 0 and 1, got {eps_f}")
+    
+    def get_category_labels(self, obs_or_true='obs'):
+        """
+        Get labels for all categories.
+        
+        Parameters:
+        -----------
+        obs_or_true : str
+            'obs' for observed categories (T/L), 'true' for true states (R/F).
+        
+        Returns:
+        --------
+        list : Category labels.
+        """
+        if obs_or_true == 'obs':
+            chars = ['T', 'L']  # Tight, Loose
+        else:
+            chars = ['R', 'F']  # Real, Fake
+        
+        labels = []
+        for i in range(self.n_categories):
+            label = ''
+            for j in range(self.n_photons):
+                bit = (i >> (self.n_photons - 1 - j)) & 1
+                label += chars[bit]
+            labels.append(label)
+        return labels
+
+
+def build_single_photon_matrix(epsilon_real, epsilon_fake):
+    """
+    Build the 2x2 transfer matrix for a single photon.
+    
+    Parameters:
+    -----------
+    epsilon_real : float
+        Tight selection efficiency for real photons.
+    epsilon_fake : float
+        Tight selection efficiency for fake photons.
+    
+    Returns:
+    --------
+    numpy.ndarray : 2x2 transfer matrix.
+    """
+    return np.array([
+        [epsilon_real, epsilon_fake],           # Tight
+        [1 - epsilon_real, 1 - epsilon_fake]    # Loose
+    ])
+
+
+def build_nphoton_matrix(epsilon_real_list, epsilon_fake_list):
+    """
+    Build the full 2^N x 2^N transfer matrix for N photons.
+    
+    The matrix is the N-fold Kronecker product of single-photon matrices.
+    This allows for different epsilon values for each photon.
+    
+    Parameters:
+    -----------
+    epsilon_real_list : list of float
+        Tight selection efficiency for real photons, one per photon.
+    epsilon_fake_list : list of float
+        Tight selection efficiency for fake photons, one per photon.
+    
+    Returns:
+    --------
+    numpy.ndarray : 2^N x 2^N transfer matrix.
+    """
+    if len(epsilon_real_list) != len(epsilon_fake_list):
+        raise ValueError("epsilon_real_list and epsilon_fake_list must have same length")
+    
+    n_photons = len(epsilon_real_list)
+    
+    # Validate epsilon values
+    for i, (eps_r, eps_f) in enumerate(zip(epsilon_real_list, epsilon_fake_list)):
+        if not (0 < eps_r < 1):
+            raise ValueError(f"epsilon_real[{i}] must be between 0 and 1, got {eps_r}")
+        if not (0 < eps_f < 1):
+            raise ValueError(f"epsilon_fake[{i}] must be between 0 and 1, got {eps_f}")
+    
+    # Start with first photon's matrix
+    M = build_single_photon_matrix(epsilon_real_list[0], epsilon_fake_list[0])
+    
+    # Kronecker product with remaining photons
+    for i in range(1, n_photons):
+        M_i = build_single_photon_matrix(epsilon_real_list[i], epsilon_fake_list[i])
+        M = np.kron(M, M_i)
+    
+    return M
+
+
+def build_triphoton_matrix(epsilon_real, epsilon_fake):
+    """
+    Build the 8x8 transfer matrix for triphoton events.
+    
+    Convenience function for triphoton analysis.
+    
+    Categories (observed): TTT, TTL, TLT, TLL, LTT, LTL, LLT, LLL
+    True states: RRR, RRF, RFR, RFF, FRR, FRF, FFR, FFF
+    
+    Parameters:
+    -----------
+    epsilon_real : float or list
+        Tight selection efficiency for real photons.
+    epsilon_fake : float or list
+        Tight selection efficiency for fake photons.
+    
+    Returns:
+    --------
+    numpy.ndarray : 8x8 transfer matrix.
+    """
+    if isinstance(epsilon_real, (int, float)):
+        epsilon_real = [epsilon_real] * 3
+    if isinstance(epsilon_fake, (int, float)):
+        epsilon_fake = [epsilon_fake] * 3
+    
+    return build_nphoton_matrix(epsilon_real, epsilon_fake)
+
+
+def get_nphoton_region_yields(df, config, base_selection="", weight_col=None):
+    """
+    Get yields in all 2^N categories for N photons.
+    
+    Parameters:
+    -----------
+    df : ROOT.RDataFrame
+        Input dataframe.
+    config : ExtendedMatrixMethodConfig
+        Configuration object.
+    base_selection : str
+        Additional base selection cuts.
+    weight_col : str, optional
+        Weight column for event weighting.
+    
+    Returns:
+    --------
+    dict : Dictionary with yields for all categories.
+    """
+    n_photons = config.n_photons
+    n_categories = config.n_categories
+    labels = config.get_category_labels('obs')
+    
+    yields = {}
+    
+    for cat_idx in range(n_categories):
+        label = labels[cat_idx]
+        
+        # Build cut string for this category
+        cuts = []
+        for pho_idx in range(n_photons):
+            bit = (cat_idx >> (n_photons - 1 - pho_idx)) & 1
+            if bit == 0:  # Tight
+                cuts.append(f"({config.tight_cuts[pho_idx]})")
+            else:  # Loose (but not tight)
+                cuts.append(f"({config.loose_cuts[pho_idx]})")
+        
+        region_cut = " && ".join(cuts)
+        if base_selection:
+            region_cut = f"({base_selection}) && ({region_cut})"
+        
+        df_region = df.Filter(region_cut)
+        
+        # Count events (with weights if provided)
+        if weight_col:
+            h = df_region.Histo1D(("count", "", 1, 0, 2), "1", weight_col)
+            hist = h.GetValue()
+            n = hist.Integral()
+            err = sqrt(hist.GetBinError(1)**2) if hist.GetNbinsX() > 0 else 0
+        else:
+            count = df_region.Count()
+            n = count.GetValue()
+            err = sqrt(n) if n > 0 else 0
+        
+        yields[label] = (n, err)
+    
+    return yields
+
+
+def estimate_nphoton_fake_contribution(yields_dict, config):
+    """
+    Estimate fake photon contribution using the extended matrix method.
+    
+    Parameters:
+    -----------
+    yields_dict : dict
+        Dictionary with yields for all 2^N categories.
+    config : ExtendedMatrixMethodConfig
+        Configuration object.
+    
+    Returns:
+    --------
+    dict : Dictionary with estimated true yields and fake contribution.
+    """
+    n_photons = config.n_photons
+    n_categories = config.n_categories
+    obs_labels = config.get_category_labels('obs')
+    true_labels = config.get_category_labels('true')
+    
+    # Build and invert the matrix
+    M = build_nphoton_matrix(config.epsilon_real, config.epsilon_fake)
+    M_inv = np.linalg.inv(M)
+    
+    # Observed yields vector
+    N_obs = np.array([yields_dict[label][0] for label in obs_labels])
+    N_obs_err = np.array([yields_dict[label][1] for label in obs_labels])
+    
+    # True yields
+    N_true = M_inv @ N_obs
+    
+    # Error propagation
+    N_true_err = np.sqrt((M_inv**2) @ (N_obs_err**2))
+    
+    # Calculate fake contribution in signal region (all tight)
+    # Signal region is first category (all T's -> index 0)
+    signal_label = obs_labels[0]  # e.g., 'TTT' for triphoton
+    
+    # Fake contribution = sum of all categories with at least one F
+    # weighted by their contribution to signal region
+    fake_in_signal = 0.0
+    fake_in_signal_err_sq = 0.0
+    
+    for true_idx, true_label in enumerate(true_labels):
+        if 'F' in true_label:  # This state has at least one fake
+            # Weight for this true state contributing to signal
+            weight = M[0, true_idx]  # Row 0 is signal region
+            fake_in_signal += weight * N_true[true_idx]
+            fake_in_signal_err_sq += (weight * N_true_err[true_idx])**2
+    
+    fake_in_signal_err = sqrt(fake_in_signal_err_sq)
+    
+    # Build result dictionary
+    result = {
+        'n_photons': n_photons,
+        'transfer_matrix': M,
+        'inverse_matrix': M_inv,
+        'observed_yields': {label: (N_obs[i], N_obs_err[i]) 
+                           for i, label in enumerate(obs_labels)},
+        'true_yields': {label: (N_true[i], N_true_err[i]) 
+                       for i, label in enumerate(true_labels)},
+        'fake_in_signal': (fake_in_signal, fake_in_signal_err),
+        'signal_label': signal_label,
+    }
+    
+    # Add convenience accessors for individual true yields
+    for i, label in enumerate(true_labels):
+        result[f'N_{label}'] = (N_true[i], N_true_err[i])
+    
+    return result
+
+
+def run_triphoton_matrix_method(inputfiles, config=None, year='2018', 
+                                 base_selection="", daskclient=None, 
+                                 use_distributed=False):
+    """
+    Run the complete triphoton matrix method analysis.
+    
+    Parameters:
+    -----------
+    inputfiles : list or str
+        Input ROOT file(s) for data.
+    config : ExtendedMatrixMethodConfig, optional
+        Configuration. Default creates triphoton config.
+    year : str
+        Data-taking year.
+    base_selection : str
+        Additional base selection cuts.
+    daskclient : distributed.Client, optional
+        External Dask client.
+    use_distributed : bool
+        Whether to use distributed processing.
+    
+    Returns:
+    --------
+    dict : Results from the matrix method estimation.
+    """
+    if config is None:
+        config = ExtendedMatrixMethodConfig(n_photons=3)
+    
+    # Setup RDataFrame
+    if use_distributed:
+        RDataFrame = init_distributed_rdf(daskclient=daskclient)
+    else:
+        ROOT.EnableImplicitMT()
+        RDataFrame = ROOT.RDataFrame
+    
+    # Create dataframe
+    df = RDataFrame("Events", inputfiles)
+    
+    # Apply basic selections
+    df = apply_triggers(df, year)
+    df = df.Filter(MET_FILTER)
+    
+    if base_selection:
+        df = df.Filter(base_selection)
+    
+    # Get yields in all regions
+    yields = get_nphoton_region_yields(df, config)
+    
+    print(f"Observed yields for {config.n_photons}-photon analysis:")
+    obs_labels = config.get_category_labels('obs')
+    for label in obs_labels:
+        print(f"  {label}: {yields[label][0]:.1f} ± {yields[label][1]:.1f}")
+    
+    # Estimate fake contribution
+    result = estimate_nphoton_fake_contribution(yields, config)
+    
+    print(f"\nEstimated true yields:")
+    true_labels = config.get_category_labels('true')
+    for label in true_labels:
+        val, err = result[f'N_{label}']
+        print(f"  N_{label}: {val:.1f} ± {err:.1f}")
+    
+    print(f"\nFake contribution in signal region ({result['signal_label']}): "
+          f"{result['fake_in_signal'][0]:.1f} ± {result['fake_in_signal'][1]:.1f}")
+    
+    return result
+
+
+def run_extended_matrix_method(inputfiles, n_photons=3, config=None, year='2018',
+                                base_selection="", daskclient=None,
+                                use_distributed=False):
+    """
+    Run the extended matrix method for N photons.
+    
+    General function that works for any number of photons.
+    
+    Parameters:
+    -----------
+    inputfiles : list or str
+        Input ROOT file(s) for data.
+    n_photons : int
+        Number of photons.
+    config : ExtendedMatrixMethodConfig, optional
+        Configuration. Default creates config for n_photons.
+    year : str
+        Data-taking year.
+    base_selection : str
+        Additional base selection cuts.
+    daskclient : distributed.Client, optional
+        External Dask client.
+    use_distributed : bool
+        Whether to use distributed processing.
+    
+    Returns:
+    --------
+    dict : Results from the matrix method estimation.
+    """
+    if config is None:
+        config = ExtendedMatrixMethodConfig(n_photons=n_photons)
+    
+    # Use the triphoton method which is general enough
+    return run_triphoton_matrix_method(
+        inputfiles, config=config, year=year,
+        base_selection=base_selection,
+        daskclient=daskclient,
+        use_distributed=use_distributed
+    )
+
+
+def create_nphoton_fake_histogram(df, var_name, nbins, xlow, xhigh, config,
+                                   base_selection="", weight_col=None):
+    """
+    Create a histogram of the fake photon contribution for N-photon analysis.
+    
+    Parameters:
+    -----------
+    df : ROOT.RDataFrame
+        Input dataframe.
+    var_name : str
+        Variable name to histogram.
+    nbins : int
+        Number of bins.
+    xlow : float
+        Lower edge.
+    xhigh : float
+        Upper edge.
+    config : ExtendedMatrixMethodConfig
+        Matrix method configuration.
+    base_selection : str
+        Additional base selection.
+    weight_col : str, optional
+        Base weight column.
+    
+    Returns:
+    --------
+    ROOT.TH1D : Histogram of fake contribution.
+    """
+    n_photons = config.n_photons
+    obs_labels = config.get_category_labels('obs')
+    
+    # Build and invert the matrix to get weights
+    M = build_nphoton_matrix(config.epsilon_real, config.epsilon_fake)
+    M_inv = np.linalg.inv(M)
+    
+    h_fake = ROOT.TH1D(f"h_fake_{var_name}", f"Fake {var_name}", nbins, xlow, xhigh)
+    h_fake.Sumw2()
+    
+    # For each observed category, compute its contribution to fake in signal
+    for obs_idx, obs_label in enumerate(obs_labels):
+        # Build cut for this category
+        cuts = []
+        for pho_idx in range(n_photons):
+            bit = (obs_idx >> (n_photons - 1 - pho_idx)) & 1
+            if bit == 0:  # Tight
+                cuts.append(f"({config.tight_cuts[pho_idx]})")
+            else:  # Loose
+                cuts.append(f"({config.loose_cuts[pho_idx]})")
+        
+        region_cut = " && ".join(cuts)
+        if base_selection:
+            region_cut = f"({base_selection}) && ({region_cut})"
+        
+        df_region = df.Filter(region_cut)
+        
+        # Calculate weight for fake contribution
+        # Sum over true states with fakes, weighted by M_inv and M[0, true]
+        true_labels = config.get_category_labels('true')
+        weight_for_fake = 0.0
+        for true_idx, true_label in enumerate(true_labels):
+            if 'F' in true_label:
+                # Contribution from this observed category to this true state,
+                # times contribution of true state to signal region
+                weight_for_fake += M_inv[true_idx, obs_idx] * M[0, true_idx]
+        
+        if abs(weight_for_fake) > 1e-10:
+            if weight_col:
+                h_region = df_region.Histo1D((f"h_{obs_label}_{var_name}", "", 
+                                              nbins, xlow, xhigh), var_name, weight_col)
+            else:
+                h_region = df_region.Histo1D((f"h_{obs_label}_{var_name}", "", 
+                                              nbins, xlow, xhigh), var_name)
+            h_region_val = h_region.GetValue()
+            h_fake.Add(h_region_val, weight_for_fake)
+    
+    h_fake.SetDirectory(0)
+    return h_fake
+
+
+def fit_nphoton_fake_yields(yields_dict, config, fit_epsilons=False):
+    """
+    Fit the N-photon matrix method, optionally fitting for epsilon values.
+    
+    Parameters:
+    -----------
+    yields_dict : dict
+        Dictionary with yields for all categories.
+    config : ExtendedMatrixMethodConfig
+        Configuration.
+    fit_epsilons : bool
+        Whether to fit for epsilon values.
+    
+    Returns:
+    --------
+    dict : Fitted results.
+    """
+    if not fit_epsilons:
+        return estimate_nphoton_fake_contribution(yields_dict, config)
+    
+    if not HAS_SCIPY:
+        print("Warning: scipy not available, falling back to fixed epsilon values")
+        return estimate_nphoton_fake_contribution(yields_dict, config)
+    
+    n_photons = config.n_photons
+    n_categories = config.n_categories
+    obs_labels = config.get_category_labels('obs')
+    true_labels = config.get_category_labels('true')
+    
+    def chi2(params):
+        # params: [eps_R_0, eps_R_1, ..., eps_F_0, eps_F_1, ..., N_true_0, N_true_1, ...]
+        n_eps = 2 * n_photons
+        eps_R = params[:n_photons]
+        eps_F = params[n_photons:n_eps]
+        N_true = params[n_eps:]
+        
+        # Check bounds
+        for eps in list(eps_R) + list(eps_F):
+            if eps <= 0 or eps >= 1:
+                return 1e10
+        for N in N_true:
+            if N < 0:
+                return 1e10
+        
+        M = build_nphoton_matrix(eps_R, eps_F)
+        N_pred = M @ N_true
+        
+        N_obs = np.array([yields_dict[label][0] for label in obs_labels])
+        N_err = np.array([yields_dict[label][1] for label in obs_labels])
+        N_err = np.maximum(N_err, 1.0)
+        
+        return np.sum(((N_pred - N_obs) / N_err)**2)
+    
+    # Initial guess
+    result_init = estimate_nphoton_fake_contribution(yields_dict, config)
+    
+    x0 = (list(config.epsilon_real) + list(config.epsilon_fake) +
+          [result_init[f'N_{label}'][0] for label in true_labels])
+    
+    # Bounds
+    bounds = ([(0.5, 0.99)] * n_photons +  # eps_R
+              [(0.01, 0.5)] * n_photons +   # eps_F
+              [(0, None)] * n_categories)   # true yields
+    
+    result = scipy_minimize(chi2, x0, bounds=bounds, method='L-BFGS-B')
+    
+    n_eps = 2 * n_photons
+    eps_R_fit = result.x[:n_photons]
+    eps_F_fit = result.x[n_photons:n_eps]
+    N_true_fit = result.x[n_eps:]
+    
+    # Rebuild matrix with fitted epsilons
+    M_fit = build_nphoton_matrix(eps_R_fit, eps_F_fit)
+    
+    # Calculate fake in signal
+    fake_in_signal = 0.0
+    for true_idx, true_label in enumerate(true_labels):
+        if 'F' in true_label:
+            fake_in_signal += M_fit[0, true_idx] * N_true_fit[true_idx]
+    
+    return {
+        'epsilon_real_fitted': list(eps_R_fit),
+        'epsilon_fake_fitted': list(eps_F_fit),
+        'true_yields': {label: (N_true_fit[i], 0) 
+                       for i, label in enumerate(true_labels)},
+        'fake_in_signal': (fake_in_signal, 0),
+        'chi2': result.fun,
+        'success': result.success
+    }

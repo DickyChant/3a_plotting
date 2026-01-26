@@ -361,3 +361,127 @@ For two photons, the 4x4 matrix is the Kronecker product of single-photon matric
 ```
 
 Inverting this matrix gives the true yields from observed yields.
+
+## Extended N-Photon Matrix Method (Triphoton and Beyond)
+
+For analyses with more than 2 photons (like ATLAS triphoton), the matrix method extends to higher dimensions using Kronecker products.
+
+### Overview
+
+For N photons:
+- Number of observed categories: 2^N (e.g., 8 for triphoton: TTT, TTL, TLT, TLL, LTT, LTL, LLT, LLL)
+- Number of true states: 2^N (e.g., 8 for triphoton: RRR, RRF, RFR, RFF, FRR, FRF, FFR, FFF)
+- Transfer matrix size: 2^N × 2^N
+
+### Quick Start (Triphoton)
+
+```python
+import histo_plot_utils as utils
+
+# Configure for triphoton analysis
+config = utils.ExtendedMatrixMethodConfig(
+    n_photons=3,
+    epsilon_real=[0.90, 0.88, 0.87],  # Per-photon efficiency
+    epsilon_fake=[0.15, 0.12, 0.10],  # Per-photon fake rate
+)
+
+# Run the analysis
+result = utils.run_triphoton_matrix_method(
+    inputfiles='data.root',
+    config=config,
+    year='2018',
+    base_selection='mjj > 500'
+)
+
+# Access results
+print(f"Fake contribution in TTT: {result['fake_in_signal'][0]:.1f}")
+print(f"N_RRR: {result['N_RRR'][0]:.1f}")
+print(f"N_RRF: {result['N_RRF'][0]:.1f}")
+```
+
+### API Reference for Extended Matrix Method
+
+#### ExtendedMatrixMethodConfig
+
+```python
+config = utils.ExtendedMatrixMethodConfig(
+    n_photons=3,                           # Number of photons
+    tight_cuts=None,                       # Custom tight cuts per photon (optional)
+    loose_cuts=None,                       # Custom loose cuts per photon (optional)
+    epsilon_real=[0.90, 0.88, 0.87],       # Real photon efficiency (per-photon or scalar)
+    epsilon_fake=[0.15, 0.12, 0.10],       # Fake photon efficiency (per-photon or scalar)
+    epsilon_real_err=[0.02, 0.02, 0.02],   # Uncertainty on epsilon_real
+    epsilon_fake_err=[0.05, 0.05, 0.05]    # Uncertainty on epsilon_fake
+)
+
+# Get category labels
+obs_labels = config.get_category_labels('obs')   # ['TTT', 'TTL', 'TLT', ...]
+true_labels = config.get_category_labels('true') # ['RRR', 'RRF', 'RFR', ...]
+```
+
+#### run_extended_matrix_method
+
+```python
+# General function for any number of photons
+result = utils.run_extended_matrix_method(
+    inputfiles='data.root',
+    n_photons=3,              # 2 for diphoton, 3 for triphoton, 4 for quadphoton...
+    config=config,            # Optional, auto-created if not provided
+    year='2018',
+    base_selection='',
+    daskclient=None,
+    use_distributed=False
+)
+```
+
+#### build_nphoton_matrix
+
+```python
+# Build transfer matrix for N photons
+# Supports different epsilon values for each photon
+M = utils.build_nphoton_matrix(
+    epsilon_real_list=[0.90, 0.88, 0.87],
+    epsilon_fake_list=[0.15, 0.12, 0.10]
+)
+# Returns 8x8 numpy array for triphoton
+```
+
+#### estimate_nphoton_fake_contribution
+
+```python
+# From pre-computed yields for triphoton
+yields = {
+    'TTT': (1000, 32), 'TTL': (50, 7), 'TLT': (45, 6.7), 'TLL': (10, 3.2),
+    'LTT': (48, 7), 'LTL': (8, 2.8), 'LLT': (7, 2.6), 'LLL': (2, 1.4)
+}
+
+result = utils.estimate_nphoton_fake_contribution(yields, config)
+```
+
+Returns:
+- `true_yields`: Dictionary of estimated true yields for all 2^N states
+- `fake_in_signal`: Fake contribution in all-tight region
+- `transfer_matrix`: 2^N × 2^N transfer matrix
+- `inverse_matrix`: Inverted matrix
+- `N_XXX`: Individual true yields (e.g., `N_RRR`, `N_RRF`, etc.)
+
+#### fit_nphoton_fake_yields
+
+```python
+# Optionally fit for epsilon values (requires scipy)
+result = utils.fit_nphoton_fake_yields(
+    yields_dict=yields,
+    config=config,
+    fit_epsilons=True
+)
+```
+
+### Mathematical Background for N Photons
+
+The N-photon transfer matrix is the N-fold Kronecker product of single-photon matrices:
+
+```
+M_N = M_1 ⊗ M_2 ⊗ ... ⊗ M_N
+```
+
+Where each M_i is the 2×2 single-photon matrix for photon i. This allows for different epsilon values for each photon, accommodating variations in photon ID efficiency across photon pT, η, or other variables.
