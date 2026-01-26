@@ -1,0 +1,180 @@
+# Sample definitions for RDatasetSpec
+# Each sample includes:
+#   - files: list of file paths or patterns
+#   - is_mc: whether this is Monte Carlo (true) or data (false)
+#   - is_unweighted: whether the sample is unweighted (for certain MC types)
+#   - cross_section: cross section in pb (for MC samples)
+#   - color: color code for plotting
+#   - category: grouping category for stacked plots
+
+# Luminosity per year (pb^-1)
+luminosity:
+  "2016pre": 19500
+  "2016post": 16800
+  "2017": 41480
+  "2018": 59700
+
+# Sample definitions
+samples:
+  # Data samples
+  EGammaA:
+    is_mc: false
+    is_unweighted: true
+    category: "Data"
+    color: 1
+    files: []  # Add your file paths here
+
+  EGammaB:
+    is_mc: false
+    is_unweighted: true
+    category: "Data"
+    color: 1
+    files: []
+
+  EGammaC:
+    is_mc: false
+    is_unweighted: true
+    category: "Data"
+    color: 1
+    files: []
+
+  EGammaD:
+    is_mc: false
+    is_unweighted: true
+    category: "Data"
+    color: 1
+    files: []
+
+  # DiPhoton MC samples
+  DiPhoton_0to40:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 754.6
+    category: "DiPhoton"
+    color: 2
+    files: []
+
+  DiPhoton_40to80:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 306.8
+    category: "DiPhoton"
+    color: 2
+    files: []
+
+  DiPhoton_80toInf:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 86.96
+    category: "DiPhoton"
+    color: 2
+    files: []
+
+  # GJet MC samples
+  GJet_Pt-40toInf:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 872.8
+    category: "GJet"
+    color: 4
+    files: []
+
+  GJet_Pt-20toInf:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 3164
+    category: "GJet"
+    color: 4
+    files: []
+
+  GJet_Pt-20to40:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 232.8
+    category: "GJet"
+    color: 4
+    files: []
+
+  # TTGG MC sample
+  TTGG:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 0.01696
+    category: "TTGG"
+    color: 3
+    files: []
+
+  # QCD MC samples
+  QCD_MGG80_pt30:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 24960.0
+    category: "QCD"
+    color: 5
+    files: []
+
+  QCD_MGG40to80:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 240500.0
+    category: "QCD"
+    color: 5
+    files: []
+
+  QCD_MGG80:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 116400.0
+    category: "QCD"
+    color: 5
+    files: []
+
+  # V+gamma MC samples
+  ZG:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 51.53
+    category: "VG"
+    color: 7
+    files: []
+
+  WG:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 193.2
+    category: "VG"
+    color: 7
+    files: []
+
+  # Signal MC sample
+  Sig:
+    is_mc: true
+    is_unweighted: false
+    cross_section: 0.6661
+    category: "Signal"
+    color: 6
+    files: []
+
+# Category definitions for plotting
+categories:
+  DiPhoton:
+    hex_color: "#9c9ca1"
+    legend_label: "DiPhoton"
+  GJet:
+    hex_color: "#f89c20"
+    legend_label: "GJet"
+  TTGG:
+    hex_color: "#e42536"
+    legend_label: "TTGG"
+  QCD:
+    hex_color: "#964a8b"
+    legend_label: "QCD"
+  VG:
+    hex_color: "#5790fc"
+    legend_label: "VG"
+  Signal:
+    hex_color: "#7a21dd"
+    legend_label: "Signal"
+  Data:
+    hex_color: "#000000"
+    legend_label: "Data"

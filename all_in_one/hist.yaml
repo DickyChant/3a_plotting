@@ -1,0 +1,129 @@
+# Histogram variable definitions
+# Format: variable_name: [nbins, xlow, xhigh]
+
+# Signal Region histograms
+SR:
+  pho1_pt_SR:
+    nbins: 30
+    xlow: 0
+    xhigh: 300
+  pho1_eta_SR:
+    nbins: 20
+    xlow: -2.5
+    xhigh: 2.5
+  pho1_phi_SR:
+    nbins: 16
+    xlow: -4
+    xhigh: 4
+  pho2_pt_SR:
+    nbins: 30
+    xlow: 0
+    xhigh: 300
+  pho2_eta_SR:
+    nbins: 20
+    xlow: -2.5
+    xhigh: 2.5
+  pho2_phi_SR:
+    nbins: 16
+    xlow: -4
+    xhigh: 4
+  dR_p1p2_SR:
+    nbins: 40
+    xlow: 0
+    xhigh: 10
+  dPhi_p1p2_SR:
+    nbins: 40
+    xlow: 0
+    xhigh: 8
+  dEta_p1p2_SR:
+    nbins: 40
+    xlow: 0
+    xhigh: 10
+  Maa:
+    nbins: 40
+    xlow: 0
+    xhigh: 400
+  Ptaa:
+    nbins: 30
+    xlow: 0
+    xhigh: 300
+  Etaaa:
+    nbins: 16
+    xlow: -4
+    xhigh: 4
+  Phiaa:
+    nbins: 20
+    xlow: -2.5
+    xhigh: 2.5
+  dR_p1j1_SR:
+    nbins: 40
+    xlow: 0
+    xhigh: 10
+  dR_p1j2_SR:
+    nbins: 40
+    xlow: 0
+    xhigh: 10
+  dR_p2j1_SR:
+    nbins: 40
+    xlow: 0
+    xhigh: 10
+  dR_p2j2_SR:
+    nbins: 40
+    xlow: 0
+    xhigh: 10
+  zepp_SR:
+    nbins: 20
+    xlow: 0
+    xhigh: 10
+  j1_pt:
+    nbins: 40
+    xlow: 0
+    xhigh: 400
+  j1_eta:
+    nbins: 20
+    xlow: -5
+    xhigh: 5
+  j1_phi:
+    nbins: 20
+    xlow: -2.5
+    xhigh: 2.5
+  j1_mass:
+    nbins: 40
+    xlow: 0
+    xhigh: 50
+  j2_pt:
+    nbins: 40
+    xlow: 0
+    xhigh: 400
+  j2_eta:
+    nbins: 20
+    xlow: -5
+    xhigh: 5
+  j2_phi:
+    nbins: 20
+    xlow: -2.5
+    xhigh: 2.5
+  j2_mass:
+    nbins: 40
+    xlow: 0
+    xhigh: 50
+  dRjj:
+    nbins: 20
+    xlow: 0
+    xhigh: 10
+  dEtajj:
+    nbins: 20
+    xlow: 0
+    xhigh: 10
+  dPhijj:
+    nbins: 20
+    xlow: 0
+    xhigh: 10
+  mjj:
+    nbins: 40
+    xlow: 0
+    xhigh: 2000
+  met_user:
+    nbins: 40
+    xlow: 0
+    xhigh: 400
