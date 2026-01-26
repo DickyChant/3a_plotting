@@ -226,3 +226,138 @@ If you were using the separate `HistoMaker` and `PlotMaker` folders:
 2. **Plotting**: Replace `plot.py` with `utils.draw_stacked_plot()`
 3. **Triggers**: Use `utils.apply_triggers(df, year)` instead of custom trigger functions
 4. **Configuration**: Move histogram definitions to `hist.yaml` and sample definitions to `samples.yaml`
+
+## Matrix Method for Fake Photon Estimation
+
+The module includes a complete implementation of the matrix method for estimating fake photon backgrounds in diphoton analyses.
+
+### Overview
+
+The matrix method separates events into four categories based on cut-based photon ID:
+- **TT**: Both photons pass tight selection (signal region)
+- **TL**: Lead tight, sublead loose
+- **LT**: Lead loose, sublead tight  
+- **LL**: Both photons loose
+
+By measuring yields in these regions and using transfer factors (ε_real, ε_fake), the method solves a matrix equation to estimate the true yields of real-real, real-fake, fake-real, and fake-fake events.
+
+### Quick Start
+
+```python
+import histo_plot_utils as utils
+
+# Configure the matrix method
+config = utils.MatrixMethodConfig(
+    epsilon_real=0.90,   # Efficiency for real photons to pass tight
+    epsilon_fake=0.15,   # Efficiency for fake photons to pass tight
+)
+
+# Run the analysis
+result = utils.run_matrix_method(
+    inputfiles='data.root',
+    config=config,
+    year='2018',
+    base_selection='mjj > 500'
+)
+
+# Access results
+print(f"Fake contribution in signal region: {result['fake_in_signal'][0]:.1f}")
+```
+
+### API Reference
+
+#### MatrixMethodConfig
+
+```python
+config = utils.MatrixMethodConfig(
+    tight_cut="Photon_cutBased >= 3",      # Tight photon selection
+    loose_cut="Photon_cutBased >= 1 && Photon_cutBased < 3",  # Loose selection
+    epsilon_real=0.90,        # Real photon efficiency
+    epsilon_fake=0.15,        # Fake photon efficiency
+    epsilon_real_err=0.02,    # Uncertainty on epsilon_real
+    epsilon_fake_err=0.05     # Uncertainty on epsilon_fake
+)
+```
+
+#### run_matrix_method
+
+```python
+result = utils.run_matrix_method(
+    inputfiles='data.root',     # Input file(s)
+    config=config,              # MatrixMethodConfig object
+    year='2018',                # Data-taking year
+    base_selection='',          # Additional base cuts
+    daskclient=None,            # External Dask client
+    use_distributed=False       # Use distributed processing
+)
+```
+
+Returns a dictionary with:
+- `N_RR`, `N_RF`, `N_FR`, `N_FF`: Estimated true yields (value, error)
+- `fake_in_signal`: Fake contribution in TT region
+- `transfer_matrix`: 4x4 transfer matrix
+- `inverse_matrix`: Inverted matrix
+
+#### estimate_fake_contribution
+
+```python
+# From pre-computed yields
+yields = {
+    'TT': (1000, 32),  # (yield, error)
+    'TL': (50, 7),
+    'LT': (45, 6.7),
+    'LL': (10, 3.2)
+}
+
+result = utils.estimate_fake_contribution(
+    yields_dict=yields,
+    epsilon_real=0.90,
+    epsilon_fake=0.15
+)
+```
+
+#### create_fake_histogram
+
+```python
+# Create shape template for fake contribution
+h_fake = utils.create_fake_histogram(
+    df=dataframe,
+    var_name='Maa',
+    nbins=40,
+    xlow=0,
+    xhigh=400,
+    config=config
+)
+```
+
+#### fit_fake_yields
+
+```python
+# Optionally fit for epsilon values
+result = utils.fit_fake_yields(
+    yields_dict=yields,
+    epsilon_real_init=0.90,
+    epsilon_fake_init=0.15,
+    fit_epsilons=True  # Fit for epsilon values
+)
+```
+
+### Mathematical Background
+
+For a single photon, the transfer matrix relates observed (T=tight, L=loose) to true (R=real, F=fake) yields:
+
+```
+[N_T]   [ε_R      ε_F  ] [N_R]
+[N_L] = [1-ε_R  1-ε_F  ] [N_F]
+```
+
+For two photons, the 4x4 matrix is the Kronecker product of single-photon matrices:
+
+```
+[N_TT]   [ε_R*ε_R    ε_R*ε_F    ε_F*ε_R    ε_F*ε_F  ] [N_RR]
+[N_TL] = [ε_R*(1-ε_R) ε_R*(1-ε_F) ε_F*(1-ε_R) ε_F*(1-ε_F)] [N_RF]
+[N_LT]   [...                                           ] [N_FR]
+[N_LL]   [...                                           ] [N_FF]
+```
+
+Inverting this matrix gives the true yields from observed yields.
